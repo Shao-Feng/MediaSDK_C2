@@ -22,6 +22,7 @@
 #include "mfx_c2_utils.h"
 #include "mfx_debug.h"
 #include "mfx_c2_debug.h"
+#include "mfx_intel_device.h"
 
 #include <iomanip>
 #include <sys/types.h>
@@ -574,6 +575,9 @@ int MfxFourCCToGralloc(mfxU32 fourcc, bool using_video_memory)
     MFX_DEBUG_TRACE_FUNC;
     MFX_DEBUG_TRACE_U32(fourcc);
 
+    if (enforceLinearBuffer()) {
+        using_video_memory = false;
+    }
     switch (fourcc)
     {
         case MFX_FOURCC_NV12:
@@ -689,8 +693,6 @@ BinaryWriter::BinaryWriter(const std::string& dir,
 
     std::stringstream full_name;
     full_name << dir << "/";
-
-    std::lock_guard<std::mutex> lock(m_mutex);
 
     for(const std::string& sub_dir : sub_dirs) {
         full_name << sub_dir;

@@ -28,7 +28,9 @@
 #include "mfx_c2_bitstream_in.h"
 #include "mfx_frame_pool_allocator.h"
 #include "mfx_gralloc_instance.h"
+#include "mfx_intel_device.h"
 #include "mfx_c2_setters.h"
+#include "mfx_c2_utils.h"
 #include <cutils/properties.h>
 
 class MfxC2DecoderComponent : public MfxC2Component
@@ -131,9 +133,10 @@ private:
     mfxStatus DecodeFrame(mfxBitstream *bs, MfxC2FrameOut&& frame_out,
         bool* flushing, bool* expect_output);
 
-    c2_status_t AllocateC2Block(uint32_t width, uint32_t height, uint32_t fourcc, std::shared_ptr<C2GraphicBlock>* out_block);
+    c2_status_t AllocateC2Block(uint32_t width, uint32_t height, uint32_t fourcc,
+         std::shared_ptr<C2GraphicBlock>* out_block, bool vpp_conversion = false);
 
-    c2_status_t AllocateFrame(MfxC2FrameOut* frame_out);
+    c2_status_t AllocateFrame(MfxC2FrameOut* frame_out, bool vpp_conversion = false);
 
     mfxU16 GetAsyncDepth();
 
@@ -161,6 +164,8 @@ private:
     void UpdateHdrStaticInfo();
 
     void UpdateColorAspectsFromBitstream(const mfxExtVideoSignalInfo &signalInfo);
+
+    mfxStatus InitVPP();
 
 private:
     DecoderType m_decoderType;
@@ -219,7 +224,7 @@ private:
     std::list<MfxC2FrameOut> m_lockedSurfaces; // allocated, but cannot be re-used as Locked by Decoder
 
     std::mutex m_pendingWorksMutex;
-    std::map<decltype(C2WorkOrdinalStruct::timestamp), std::unique_ptr<C2Work>> m_pendingWorks;
+    std::map<decltype(C2WorkOrdinalStruct::frameIndex), std::unique_ptr<C2Work>> m_pendingWorks;
 
     std::shared_ptr<MfxFramePoolAllocator> m_allocator; // used when Video memory output
     // for pre-allocation when Video memory is chosen and always when System memory output
@@ -246,11 +251,21 @@ private:
     unsigned int m_uOutputDelay = 8u;
     unsigned int m_uInputDelay = 0u;
 
-#if MFX_DEBUG_DUMP_FRAME == MFX_DEBUG_YES
-    int m_count = 0;
-    std::mutex m_count_lock;
-    bool NeedDumpBuffer();
-#endif
+    MFXVideoVPP* m_vpp;
+    bool m_vppConversion = false;
+
+    std::unique_ptr<BinaryWriter> m_outputWriter;
+    std::unique_ptr<BinaryWriter> m_inputWriter;
+
+    std::mutex m_dump_output_lock;
+    std::mutex m_dump_input_lock;
+
+    uint32_t m_dump_count = 0;
+    // decoder output dump file number, during decoding one bitstream, if
+    // dump output multiple times, the first dumped file named xxx_0.yuv,
+    // second dumped file named xxx_1.yuv ...
+    uint32_t m_file_num = 0;
+    bool m_needCpuAccess = false;
 
     /* -----------------------C2Parameters--------------------------- */
     std::shared_ptr<C2ComponentNameSetting> m_name;
@@ -258,7 +273,6 @@ private:
     std::shared_ptr<C2ComponentDomainSetting> m_domain;
     std::shared_ptr<C2StreamPictureSizeInfo::output> m_size;
     std::shared_ptr<C2PortSurfaceAllocatorTuning::output> m_surfaceAllocator;
-    std::shared_ptr<C2PortAllocatorsTuning::input> m_inputAllocators;
     std::shared_ptr<C2PortAllocatorsTuning::output> m_outputAllocators;
     std::shared_ptr<C2StreamMaxPictureSizeTuning::output> m_maxSize;
     std::shared_ptr<C2StreamMaxBufferSizeInfo::input> m_maxInputSize;
@@ -268,15 +282,15 @@ private:
     std::shared_ptr<C2PortMediaTypeSetting::input> m_inputMediaType;
     std::shared_ptr<C2StreamBufferTypeSetting::input> m_inputFormat;
     std::shared_ptr<C2StreamBufferTypeSetting::output> m_outputFormat;
+    std::shared_ptr<C2StreamUsageTuning::output> m_outputUsage;
     std::shared_ptr<C2StreamProfileLevelInfo::input> m_profileLevel;
     std::shared_ptr<C2PortActualDelayTuning::output> m_actualOutputDelay;
-    std::shared_ptr<C2PortRequestedDelayTuning::input> m_requestedInputDelay;
-    std::shared_ptr<C2PortActualDelayTuning::input> m_actualInputDelay;
     std::shared_ptr<C2PortDelayTuning::input> m_inputDelay;
     std::shared_ptr<C2StreamColorAspectsTuning::output> m_defaultColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::input> m_inColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::output> m_outColorAspects;
     std::shared_ptr<C2StreamPixelFormatInfo::output> m_pixelFormat;
+
     /* ----------------------------------------Setters------------------------------------------- */
     static C2R OutputSurfaceAllocatorSetter(bool mayBlock, C2P<C2PortSurfaceAllocatorTuning::output> &me);
     static C2R SizeSetter(bool mayBlock, const C2P<C2StreamPictureSizeInfo::output> &oldMe,
@@ -292,4 +306,5 @@ private:
     static C2R ColorAspectsSetter(bool mayBlock, C2P<C2StreamColorAspectsInfo::output> &me,
                                 const C2P<C2StreamColorAspectsTuning::output> &def,
                                 const C2P<C2StreamColorAspectsInfo::input> &coded);
+    static C2R OutputUsageSetter(bool mayBlock, C2P<C2StreamUsageTuning::output> &me);
 };
