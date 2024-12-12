@@ -150,10 +150,13 @@ C2R MfxC2DecoderComponent::ColorAspectsSetter(bool mayBlock, C2P<C2StreamColorAs
     (void)mayBlock;
     // take default values for all unspecified fields, and coded values for specified ones
     me.set().range = coded.v.range == RANGE_UNSPECIFIED ? def.v.range : coded.v.range;
+    ALOGE("##### stang23 ##### coded.v.range: %d", coded.v.range);
     me.set().primaries = coded.v.primaries == PRIMARIES_UNSPECIFIED
             ? def.v.primaries : coded.v.primaries;
+    ALOGE("##### stang23 ##### coded.v.primaries: %d", coded.v.primaries);
     me.set().transfer = coded.v.transfer == TRANSFER_UNSPECIFIED
             ? def.v.transfer : coded.v.transfer;
+    ALOGE("##### stang23 ##### coded.v.transfer: %d", coded.v.transfer);
     me.set().matrix = coded.v.matrix == MATRIX_UNSPECIFIED ? def.v.matrix : coded.v.matrix;
     return C2R::Ok();
 }
@@ -263,6 +266,7 @@ MfxC2DecoderComponent::MfxC2DecoderComponent(const C2String name, const CreateCo
                             PROFILE_AVC_CONSTRAINED_HIGH,
                             PROFILE_AVC_PROGRESSIVE_HIGH,
                             PROFILE_AVC_HIGH,
+			    PROFILE_AVC_HIGH_10,
                         }),
                     C2F(m_profileLevel, C2ProfileLevelStruct::level)
                         .oneOf({
@@ -519,6 +523,7 @@ MfxC2DecoderComponent::MfxC2DecoderComponent(const C2String name, const CreateCo
                         .oneOf({
                             PROFILE_AV1_0,
                             PROFILE_AV1_1,
+			    PROFILE_AV1_2,
                         }),
                     C2F(m_profileLevel, C2ProfileLevelStruct::level)
                         .oneOf({
@@ -1107,8 +1112,10 @@ mfxStatus MfxC2DecoderComponent::InitDecoder(std::shared_ptr<C2BlockPool> c2_all
     mfxU16 cropW = 0, cropH = 0;
     std::lock_guard<std::mutex> lock(m_initDecoderMutex);
 
+    ALOGE("##### stang23 ##### InitDecoder !");
     {
         MFX_DEBUG_TRACE_MSG("InitDecoder: DecodeHeader");
+	ALOGE("##### stang23 ##### InitDecoder: DecodeHeader");
 
         if (nullptr == m_mfxDecoder) {
 #ifdef USE_ONEVPL
@@ -1123,6 +1130,7 @@ mfxStatus MfxC2DecoderComponent::InitDecoder(std::shared_ptr<C2BlockPool> c2_all
 
         if (MFX_ERR_NONE == mfx_res) {
             // saving parameters
+	    ALOGE("##### stang23 ##### InitDecoder: saving parameters");
             mfxVideoParam oldParams = m_mfxVideoParams;
 
             m_extBuffers.push_back(reinterpret_cast<mfxExtBuffer*>(&m_signalInfo));
@@ -1200,9 +1208,11 @@ mfxStatus MfxC2DecoderComponent::InitDecoder(std::shared_ptr<C2BlockPool> c2_all
 
     if (MFX_ERR_NONE == mfx_res) {
         MFX_DEBUG_TRACE_MSG("InitDecoder: UpdateColorAspectsFromBitstream");
+	ALOGE("##### stang23 ##### InitDecoder InitDecoder: UpdateColorAspectsFromBitstream");
         UpdateColorAspectsFromBitstream(m_signalInfo);
 
         MFX_DEBUG_TRACE_MSG("InitDecoder: GetAsyncDepth");
+	ALOGE("##### stang23 ##### InitDecoder InitDecoder: GetAsyncDepth");
         m_mfxVideoParams.AsyncDepth = GetAsyncDepth();
     }
 
@@ -1497,6 +1507,12 @@ void MfxC2DecoderComponent::DoUpdateMfxParam(const std::vector<C2Param*> &params
                 }
                 break;
             }
+	    case kParamIndexColorAspects: {
+                ALOGE("##### stang23 ##### kParamIndexColorAspects is set!");
+                ALOGE("##### stang23 ##### m_outColorAspects ->range : %d", m_outColorAspects ->range);
+		ALOGE("##### stang23 ##### m_outColorAspects ->primaries : %d", m_outColorAspects ->primaries);
+		ALOGE("##### stang23 ##### m_outColorAspects ->transfer : %d", m_outColorAspects ->transfer);
+	    }
             default:
                 MFX_DEBUG_TRACE_STREAM("attempt to configure " 
                                     << C2Param::Type(param->type()).typeIndex() << " type, but not found");
@@ -1976,8 +1992,10 @@ void MfxC2DecoderComponent::DoWork(std::unique_ptr<C2Work>&& work)
     bool expect_output = false;
     bool flushing = false;
     bool codecConfig = ((incoming_flags & C2FrameData::FLAG_CODEC_CONFIG) != 0);
+
     // Av1 and VP9 don't need the bs which flag is config.
-    if (codecConfig && (DECODER_AV1 == m_decoderType || DECODER_VP9 == m_decoderType)) {
+    if (codecConfig) {
+	ALOGE("##### stang23 ##### codecConfig: %d", codecConfig);
         FillEmptyWork(std::move(work), C2_OK);
         if (true == m_bInitialized) {
             mfxStatus format_change_sts = HandleFormatChange();
@@ -1988,7 +2006,8 @@ void MfxC2DecoderComponent::DoWork(std::unique_ptr<C2Work>&& work)
             }
         }
         return;
-    } else if (DECODER_AV1 == m_decoderType && m_c2Bitstream->IsInReset()) {
+    } else if (m_c2Bitstream->IsInReset()) {
+	ALOGE("##### stang23 ##### m_c2Bitstream->IsInReset() is true.");
         if (true == m_bInitialized) {
             mfxStatus format_change_sts = HandleFormatChange();
             MFX_DEBUG_TRACE__mfxStatus(format_change_sts);
@@ -2079,7 +2098,9 @@ void MfxC2DecoderComponent::DoWork(std::unique_ptr<C2Work>&& work)
             }
 
             resolution_change = (MFX_ERR_INCOMPATIBLE_VIDEO_PARAM == mfx_sts);
+
             if (resolution_change) {
+		ALOGE("##### stang23 ##### resolution is changed");
                 frame_out = MfxC2FrameOut(); // release the frame to be used in Drain
 
                 Drain(nullptr);
@@ -2705,8 +2726,11 @@ void MfxC2DecoderComponent::UpdateColorAspectsFromBitstream(const mfxExtVideoSig
     }
 
     MFX_DEBUG_TRACE_I32(m_outColorAspects->range);
+    ALOGE("##### stang23 ##### UpdateColorAspectsFromBitstream m_outColorAspects->range: %d", m_outColorAspects->range);
     MFX_DEBUG_TRACE_I32(m_outColorAspects->primaries);
+    ALOGE("##### stang23 ##### UpdateColorAspectsFromBitstream m_outColorAspects->primaries: %d", m_outColorAspects->primaries);
     MFX_DEBUG_TRACE_I32(m_outColorAspects->transfer);
+    ALOGE("##### stang23 ##### UpdateColorAspectsFromBitstream m_outColorAspects->transfer: %d", m_outColorAspects->transfer);
     MFX_DEBUG_TRACE_I32(m_outColorAspects->matrix);
     m_updatingC2Configures.push_back(C2Param::Copy(*m_outColorAspects));
 }
