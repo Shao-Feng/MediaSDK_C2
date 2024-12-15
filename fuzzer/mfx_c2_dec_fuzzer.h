@@ -34,8 +34,6 @@ namespace fuzzer {
 
 #define C2FUZZER_ALIGN(_sz, _align) (((_sz) + ((_align)-1)) & ~((_align)-1))
 
-#define PAGE_SIZE 4096
-
 constexpr auto kC2FuzzerTimeOut = std::chrono::milliseconds(5000);
 constexpr int32_t kNumberOfC2WorkItems = 8;
 constexpr uint32_t kWidthOfVideo = 3840;
