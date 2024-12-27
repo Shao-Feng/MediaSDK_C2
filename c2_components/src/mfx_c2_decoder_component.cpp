@@ -1360,6 +1360,10 @@ mfxStatus MfxC2DecoderComponent::HandleFormatChange()
         m_uMaxHeight = m_mfxVideoParams.mfx.FrameInfo.Height;
     }
 
+    if (m_c2Bitstream) {
+        m_c2Bitstream->Reset();
+    }
+
     return mfx_res;
 }
 
